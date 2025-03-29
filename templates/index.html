@@ -1,0 +1,719 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Web Audio Recorder</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        .recording {
+            animation: pulse 1.5s infinite;
+        }
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+        .permission-denied {
+            color: red;
+            font-weight: bold;
+        }
+        .transcription-box, .summary-box {
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 0.25rem;
+            padding: 1.5rem;
+            margin-top: 1rem;
+            white-space: pre-wrap;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #2c3e50;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        
+        .transcription-text {
+            margin-bottom: 0.8em;
+        }
+        
+        .transcription-timestamp {
+            color: #6c757d;
+            font-size: 0.85em;
+            margin-bottom: 0.5em;
+        }
+
+        .transcription-segment {
+            padding: 0.5em 0;
+            border-bottom: 1px solid #eee;
+        }
+        
+        .transcription-segment:last-child {
+            border-bottom: none;
+        }
+        .loading {
+            display: inline-block;
+            width: 1rem;
+            height: 1rem;
+            border: 2px solid #f3f3f3;
+            border-top: 2px solid #3498db;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .summary-section {
+            margin-top: 2rem;
+        }
+
+        .summary-box {
+            background-color: #fff;
+            border: 1px solid #4CAF50;
+        }
+
+        .summary-header {
+            color: #2c3e50;
+            margin-bottom: 1rem;
+        }
+
+        .button-group {
+            margin-top: 1rem;
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+        }
+
+        .dropdown {
+            position: relative;
+            display: inline-block;
+        }
+
+        .dropdown-content {
+            display: none;
+            position: absolute;
+            background-color: #f9f9f9;
+            min-width: 160px;
+            box-shadow: 0px 8px 16px 0px rgba(0,0,0,0.2);
+            z-index: 1;
+            border-radius: 4px;
+        }
+
+        .dropdown-content a {
+            color: black;
+            padding: 12px 16px;
+            text-decoration: none;
+            display: block;
+        }
+
+        .dropdown-content a:hover {
+            background-color: #f1f1f1;
+            border-radius: 4px;
+        }
+
+        .dropdown:hover .dropdown-content {
+            display: block;
+        }
+
+        .dropdown-button {
+            background-color: #28a745;
+            color: white;
+            padding: 0.375rem 0.75rem;
+            border: 1px solid transparent;
+            border-radius: 0.25rem;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .dropdown-button::after {
+            content: "";
+            border-left: 5px solid transparent;
+            border-right: 5px solid transparent;
+            border-top: 5px solid white;
+            margin-left: 5px;
+        }
+
+        .section-heading {
+            color: #1a73e8;
+            font-size: 1.2em;
+            margin-bottom: 0.5em;
+        }
+
+        .btn-reset {
+            background-color: #6c757d;
+            color: white;
+            border: none;
+            padding: 0.375rem 0.75rem;
+            border-radius: 0.25rem;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+
+        .btn-reset:hover {
+            background-color: #5a6268;
+        }
+
+        .btn-reset:disabled {
+            background-color: #adb5bd;
+            cursor: not-allowed;
+        }
+    </style>
+</head>
+<body>
+    <div class="container mt-5">
+        <h1 class="mb-4">Web Audio Recorder & Transcriber</h1>
+        
+        <div class="card mb-4">
+            <div class="card-body">
+                <h5 class="card-title">Device Status</h5>
+                <div id="deviceStatus">
+                    <p>Microphone: <span id="micStatus">Checking...</span></p>
+                    <p>System Audio: <span id="sysStatus">Checking...</span></p>
+                </div>
+                <div id="permissionError" class="permission-denied mt-2"></div>
+                <button id="enableSystemAudio" class="btn btn-primary mt-2" style="display: none;">Enable System Audio</button>
+                </div>
+            </div>
+            
+        <div class="card mb-4">
+            <div class="card-body">
+                <h5 class="card-title">Volume Controls</h5>
+                <div class="mb-3">
+                    <label for="micVolume" class="form-label d-flex justify-content-between align-items-center">
+                        <span>Microphone Volume</span>
+                        <span id="micVolumeLevel">100%</span>
+                    </label>
+                    <input type="range" class="form-range" id="micVolume" min="0" max="1" step="0.1" value="1">
+                </div>
+                <div class="mb-3">
+                    <label for="sysVolume" class="form-label d-flex justify-content-between align-items-center">
+                        <span>System Audio Volume</span>
+                        <span id="sysVolumeLevel">30%</span>
+                    </label>
+                    <input type="range" class="form-range" id="sysVolume" min="0" max="1" step="0.1" value="0.3">
+                </div>
+            </div>
+            </div>
+            
+        <div class="card mb-4">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h5 class="card-title mb-0">Recording Controls</h5>
+                    <button id="resetAll" class="btn-reset">
+                        Reset All
+                    </button>
+                </div>
+                <div class="d-flex align-items-center">
+                    <button id="startRecord" class="btn btn-primary me-2" disabled>Start Recording</button>
+                    <button id="stopRecord" class="btn btn-danger me-2" disabled>Stop Recording</button>
+                    <span id="timer" class="ms-2">00:00:00</span>
+                    <div id="processingIndicator" class="ms-3" style="display: none;">
+                        <span class="loading"></span>
+                        <span class="ms-2">Processing...</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+            
+        <div class="card">
+            <div class="card-body">
+                <h5 class="card-title">Latest Transcription</h5>
+                <div id="transcriptionBox" class="transcription-box">
+                    No transcription available yet. Record some audio to see the transcription here.
+                </div>
+                <div class="button-group">
+                    <button id="downloadDocx" class="btn btn-success" disabled>
+                        Download Transcription
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div class="summary-section">
+            <div class="card">
+                <div class="card-body">
+                    <h5 class="card-title">Meeting Summary</h5>
+                    <div id="summaryBox" class="summary-box">
+                        No summary available yet. A summary will be automatically generated after recording.
+                    </div>
+                    <div class="button-group mt-3">
+                        <div class="dropdown">
+                            <button class="dropdown-button" id="downloadSummaryBtn" disabled>
+                                Download Summary
+                            </button>
+                            <div class="dropdown-content">
+                                <a href="#" id="downloadSummaryDocx">Download as DOCX</a>
+                                <a href="#" id="downloadSummaryPdf">Download as PDF</a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/js/audioCapture.js"></script>
+    <script>
+        let audioCapture = new AudioCapture();
+        let startTime;
+        let timerInterval;
+        let micPermissionGranted = false;
+        let sysPermissionGranted = false;
+        let currentTranscription = null;
+        let currentTimestamp = null;
+        let currentSummary = null;
+
+        // Initialize audio capture
+        async function initializeAudio() {
+            try {
+                // First request microphone permission
+                const micStream = await navigator.mediaDevices.getUserMedia({ 
+                    audio: {
+                        echoCancellation: true,
+                        noiseSuppression: true,
+                        autoGainControl: true
+                    }
+                });
+                micPermissionGranted = true;
+                document.getElementById('micStatus').textContent = 'Connected';
+                
+                // Show the system audio button after microphone is connected
+                document.getElementById('enableSystemAudio').style.display = 'block';
+                
+                // Initialize with just microphone for now
+                const success = await audioCapture.initialize(micStream, null);
+                if (success) {
+                    document.getElementById('startRecord').disabled = false;
+                }
+            } catch (error) {
+                console.error('Error initializing audio:', error);
+                document.getElementById('permissionError').textContent = 
+                    `Error: ${error.message}. Please grant microphone permissions.`;
+                
+                if (error.name === 'NotAllowedError') {
+                    document.getElementById('micStatus').textContent = 'Permission Denied';
+                    document.getElementById('sysStatus').textContent = 'Not Available';
+                }
+            }
+        }
+
+        // Handle system audio enable button
+        document.getElementById('enableSystemAudio').addEventListener('click', async () => {
+            try {
+                // Check if we're in a secure context
+                if (!window.isSecureContext) {
+                    throw new Error('System audio capture requires a secure context (HTTPS or localhost). Please access this page via HTTPS or localhost.');
+                }
+
+                // Check if getDisplayMedia is supported
+                if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
+                    throw new Error('Your browser does not support system audio capture. Please use Chrome, Edge, or another modern browser.');
+                }
+
+                const sysStream = await navigator.mediaDevices.getDisplayMedia({ 
+                    audio: {
+                        autoGainControl: false,
+                        echoCancellation: false,
+                        noiseSuppression: false
+                    },
+                    video: {
+                        width: 1,
+                        height: 1,
+                        frameRate: 1
+                    }
+                });
+                
+                // Check if we actually got audio tracks
+                if (sysStream.getAudioTracks().length > 0) {
+                    sysPermissionGranted = true;
+                    document.getElementById('sysStatus').textContent = 'Connected';
+                    document.getElementById('permissionError').textContent = '';
+                    document.getElementById('enableSystemAudio').style.display = 'none';
+                    
+                    // Stop any video tracks since we don't need them
+                    sysStream.getVideoTracks().forEach(track => track.stop());
+                    
+                    // Re-initialize with both streams
+                    const success = await audioCapture.initialize(
+                        audioCapture.microphoneStream, 
+                        sysStream
+                    );
+                    
+                    if (!success) {
+                        throw new Error('Failed to initialize with system audio');
+                    }
+                } else {
+                    throw new Error('No system audio track available. Please make sure to check "Share audio" in the screen sharing dialog.');
+                }
+            } catch (error) {
+                console.error('System audio error:', error);
+                document.getElementById('sysStatus').textContent = 'Not Available';
+                
+                // Provide more specific error messages
+                if (error.name === 'NotAllowedError') {
+                    document.getElementById('permissionError').textContent = 
+                        'System audio permission denied. Please click "Enable System Audio" again and make sure to check "Share audio" in the dialog.';
+                } else if (error.name === 'NotFoundError') {
+                    document.getElementById('permissionError').textContent = 
+                        'No audio output devices found. Please make sure you have speakers or audio output enabled.';
+                } else if (error.name === 'NotSupportedError') {
+                    document.getElementById('permissionError').textContent = 
+                        'System audio capture is not supported in your browser. Please use Chrome or Edge.';
+            } else {
+                    document.getElementById('permissionError').textContent = 
+                        `System audio error: ${error.message}`;
+                }
+            }
+        });
+
+        // Volume control handlers
+        document.getElementById('micVolume').addEventListener('input', (e) => {
+            const volume = parseFloat(e.target.value);
+            audioCapture.setMicVolume(volume);
+            document.getElementById('micVolumeLevel').textContent = `${Math.round(volume * 100)}%`;
+        });
+
+        document.getElementById('sysVolume').addEventListener('input', (e) => {
+            const volume = parseFloat(e.target.value);
+            audioCapture.setSystemVolume(volume);
+            document.getElementById('sysVolumeLevel').textContent = `${Math.round(volume * 100)}%`;
+        });
+        
+        // Recording controls
+        document.getElementById('startRecord').addEventListener('click', async () => {
+            if (audioCapture.startRecording()) {
+                startTime = Date.now();
+                document.getElementById('startRecord').disabled = true;
+                document.getElementById('stopRecord').disabled = false;
+                document.getElementById('startRecord').classList.add('recording');
+                document.getElementById('transcriptionBox').textContent = 'Recording in progress...';
+                
+                // Start timer
+                timerInterval = setInterval(updateTimer, 1000);
+            }
+        });
+
+        document.getElementById('stopRecord').addEventListener('click', async () => {
+            const audioBlob = await audioCapture.stopRecording();
+            if (audioBlob) {
+                document.getElementById('startRecord').disabled = false;
+                document.getElementById('stopRecord').disabled = true;
+                document.getElementById('startRecord').classList.remove('recording');
+                clearInterval(timerInterval);
+                
+                // Show processing indicator
+                document.getElementById('processingIndicator').style.display = 'inline-block';
+                document.getElementById('transcriptionBox').textContent = 'Processing audio...';
+                document.getElementById('summaryBox').textContent = 'Generating summary...';
+                document.getElementById('downloadDocx').disabled = true;
+                document.getElementById('downloadSummaryBtn').disabled = true;
+
+                // Create a FormData object and append the audio blob
+                const formData = new FormData();
+                const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+                const filename = `recording_${timestamp}.wav`;
+                formData.append('audio', audioBlob, filename);
+
+                // Send the recording to the server
+                try {
+                    const response = await fetch('/upload', {
+                        method: 'POST',
+                        body: formData
+                    });
+
+                    // Hide processing indicator
+                    document.getElementById('processingIndicator').style.display = 'none';
+
+                    if (response.ok) {
+                        const data = await response.json();
+                        if (data.success) {
+                            currentTranscription = data.transcription;
+                            currentTimestamp = data.timestamp;
+                            currentSummary = data.summary;
+                            
+                            // Process and format the transcription
+                            const transcriptionBox = document.getElementById('transcriptionBox');
+                            transcriptionBox.innerHTML = ''; // Clear existing content
+                            
+                            // Add timestamp at the top
+                            const timestampDiv = document.createElement('div');
+                            timestampDiv.className = 'transcription-timestamp';
+                            timestampDiv.textContent = `Transcribed on ${data.timestamp}`;
+                            transcriptionBox.appendChild(timestampDiv);
+                            
+                            // Split transcription into segments and format
+                            const segments = data.transcription
+                                .split(/(?<=[.!?])\s+/)
+                                .filter(segment => segment.trim().length > 0);
+                            
+                            segments.forEach(segment => {
+                                const segmentDiv = document.createElement('div');
+                                segmentDiv.className = 'transcription-segment';
+                                
+                                const textDiv = document.createElement('div');
+                                textDiv.className = 'transcription-text';
+                                textDiv.textContent = segment.trim();
+                                
+                                segmentDiv.appendChild(textDiv);
+                                transcriptionBox.appendChild(segmentDiv);
+                            });
+                            
+                            // Enable download buttons
+                            document.getElementById('downloadDocx').disabled = false;
+                            
+                            // Process and display the summary if available
+                            const summaryBox = document.getElementById('summaryBox');
+                            if (data.summary) {
+                                // Format and display the summary
+                                const formattedSummary = data.summary
+                                    .split('\n')
+                                    .map(line => {
+                                        if (line.match(/^(Meeting|Key Points|Recommendations|Meeting Minutes|Overall)/)) {
+                                            return `<div class="section-heading">${line}</div>`;
+                                        }
+                                        return line;
+                                    })
+                                    .join('<br>');
+                                
+                                summaryBox.innerHTML = formattedSummary;
+                                document.getElementById('downloadSummaryBtn').disabled = false;
+                            } else {
+                                summaryBox.textContent = 'Failed to generate summary automatically. You can try generating it manually.';
+                                document.getElementById('downloadSummaryBtn').disabled = true;
+                            }
+                        } else {
+                            throw new Error(data.error || 'Failed to get transcription');
+                        }
+                    } else {
+                        throw new Error('Failed to process recording');
+                    }
+                } catch (error) {
+                    console.error('Error processing recording:', error);
+                    document.getElementById('permissionError').textContent = error.message;
+                    document.getElementById('transcriptionBox').textContent = 
+                        'Failed to generate transcription. Please try recording again.';
+                    document.getElementById('summaryBox').textContent = 
+                        'Summary generation failed. Please try again.';
+                    document.getElementById('downloadDocx').disabled = true;
+                    document.getElementById('downloadSummaryBtn').disabled = true;
+                }
+            }
+        });
+
+        // Handle summary downloads
+        document.getElementById('downloadSummaryDocx').addEventListener('click', async (e) => {
+            e.preventDefault();
+            if (!currentSummary) return;
+
+            try {
+                const response = await fetch('/api/download/summary/docx', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        content: currentSummary
+                    })
+                });
+
+                if (response.ok) {
+                    const blob = await response.blob();
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.style.display = 'none';
+                    a.href = url;
+                    a.download = `meeting_summary_${new Date().toISOString().replace(/[:.]/g, '-')}.docx`;
+                    document.body.appendChild(a);
+                    a.click();
+                    
+                    // Clean up
+                    setTimeout(() => {
+                        document.body.removeChild(a);
+                        window.URL.revokeObjectURL(url);
+                    }, 100);
+                } else {
+                    document.getElementById('permissionError').textContent = 
+                        'Failed to download summary. Please try again.';
+                }
+            } catch (error) {
+                console.error('Error downloading summary as DOCX:', error);
+                document.getElementById('permissionError').textContent = 
+                    'Failed to download summary. Please try again.';
+            }
+        });
+
+        document.getElementById('downloadSummaryPdf').addEventListener('click', async (e) => {
+            e.preventDefault();
+            if (!currentSummary) return;
+
+            try {
+                const response = await fetch('/api/download/summary/get-pdf', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        content: currentSummary
+                    })
+                });
+
+                if (response.ok) {
+                    const blob = await response.blob();
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.style.display = 'none';
+                    a.href = url;
+                    a.download = `meeting_summary_${new Date().toISOString().replace(/[:.]/g, '-')}.pdf`;
+                    document.body.appendChild(a);
+                    a.click();
+                    
+                    // Clean up
+                    setTimeout(() => {
+                        document.body.removeChild(a);
+                        window.URL.revokeObjectURL(url);
+                    }, 100);
+                } else {
+                    document.getElementById('permissionError').textContent = 
+                        'Failed to download summary. Please try again.';
+                }
+            } catch (error) {
+                console.error('Error downloading summary as PDF:', error);
+                document.getElementById('permissionError').textContent = 
+                    'Failed to download summary. Please try again.';
+            }
+        });
+
+        // Handle transcription download
+        document.getElementById('downloadDocx').addEventListener('click', async () => {
+            if (!currentTranscription) return;
+
+            try {
+                const response = await fetch('/download-transcription', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        transcription: currentTranscription,
+                        timestamp: currentTimestamp
+                    })
+                });
+
+                if (response.ok) {
+                    const blob = await response.blob();
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `transcription_${new Date().toISOString().replace(/[:.]/g, '-')}.docx`;
+                    document.body.appendChild(a);
+                    a.click();
+                    window.URL.revokeObjectURL(url);
+                    document.body.removeChild(a);
+                } else {
+                    throw new Error('Failed to download transcription');
+                }
+            } catch (error) {
+                console.error('Error downloading transcription:', error);
+                document.getElementById('permissionError').textContent = 
+                    'Failed to download transcription. Please try again.';
+            }
+        });
+
+        // Timer update function
+        function updateTimer() {
+            const elapsed = Date.now() - startTime;
+            const seconds = Math.floor(elapsed / 1000);
+            const minutes = Math.floor(seconds / 60);
+            const hours = Math.floor(minutes / 60);
+            
+            document.getElementById('timer').textContent = 
+                `${hours.toString().padStart(2, '0')}:${(minutes % 60).toString().padStart(2, '0')}:${(seconds % 60).toString().padStart(2, '0')}`;
+        }
+
+        // Add reset functionality
+        document.getElementById('resetAll').addEventListener('click', async () => {
+            try {
+                // Disable the reset button during reset
+                const resetButton = document.getElementById('resetAll');
+                resetButton.disabled = true;
+
+                // Reset recording controls
+                document.getElementById('startRecord').disabled = true;
+                document.getElementById('stopRecord').disabled = true;
+                document.getElementById('startRecord').classList.remove('recording');
+                clearInterval(timerInterval);
+                document.getElementById('timer').textContent = '00:00:00';
+                
+                // Reset volume sliders
+                document.getElementById('micVolume').value = 1;
+                document.getElementById('sysVolume').value = 0.3;
+                document.getElementById('micVolumeLevel').textContent = '100%';
+                document.getElementById('sysVolumeLevel').textContent = '30%';
+                
+                // Reset audio capture if it exists
+                if (audioCapture) {
+                    audioCapture.setMicVolume(1);
+                    audioCapture.setSystemVolume(0.3);
+                    if (audioCapture.isRecording()) {
+                        await audioCapture.stopRecording();
+                    }
+                    // Create a new instance of AudioCapture
+                    audioCapture = new AudioCapture();
+                }
+                
+                // Clear transcription
+                document.getElementById('transcriptionBox').textContent = 
+                    'No transcription available yet. Record some audio to see the transcription here.';
+                document.getElementById('downloadDocx').disabled = true;
+                currentTranscription = null;
+                currentTimestamp = null;
+                
+                // Clear summary
+                document.getElementById('summaryBox').textContent = 
+                    'No summary available yet. A summary will be automatically generated after recording.';
+                document.getElementById('downloadSummaryBtn').disabled = true;
+                currentSummary = null;
+                
+                // Clear any error messages
+                document.getElementById('permissionError').textContent = '';
+                
+                // Reset processing indicator
+                document.getElementById('processingIndicator').style.display = 'none';
+
+                // Reset device status
+                document.getElementById('micStatus').textContent = 'Checking...';
+                document.getElementById('sysStatus').textContent = 'Checking...';
+                document.getElementById('enableSystemAudio').style.display = 'none';
+                
+                // Re-initialize audio with a small delay to ensure clean setup
+                setTimeout(async () => {
+                    try {
+                        await initializeAudio();
+                    } finally {
+                        // Re-enable the reset button
+                        resetButton.disabled = false;
+                    }
+                }, 500);
+                
+            } catch (error) {
+                console.error('Error during reset:', error);
+                // Clear error message after 3 seconds
+                document.getElementById('permissionError').textContent = 'Resetting application...';
+                setTimeout(() => {
+                    document.getElementById('permissionError').textContent = '';
+                }, 3000);
+                
+                // Re-enable the reset button
+                document.getElementById('resetAll').disabled = false;
+            }
+        });
+
+        // Initialize when the page loads
+        document.addEventListener('DOMContentLoaded', () => {
+            initializeAudio();
+        });
+    </script>
+</body>
+</html> 
